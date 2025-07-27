@@ -4,6 +4,7 @@
 
 This project was developed as a submission for Round 1A of the Adobe India Hackathon 2025. It focuses on extracting structured outlines from unstructured PDF documents by detecting headings and their hierarchy levels.
 
+
 ---
 
 ## 📌 Problem Statement
