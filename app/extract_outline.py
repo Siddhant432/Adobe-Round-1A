@@ -1,6 +1,5 @@
 import os, json, time, fitz, joblib, re
 from collections import defaultdict
-import statistics
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 model = joblib.load(os.path.join(base_dir, "model", "heading_classifier.pkl"))
@@ -11,7 +10,11 @@ label_map = {0: "None", 1: "H4", 2: "H3", 3: "H2", 4: "H1"}
 def clean_text(text):
     text = text.replace("\u00a0", " ")  # non-breaking space
     text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"([a-zA-Z])\s+([a-zA-Z])", r"\1 \2", text)  # avoid incorrect merges
+    # Fix common merged words by inserting spaces between lowercase-uppercase transitions or letter-number transitions
+    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+    text = re.sub(r'([a-zA-Z])(\d)', r'\1 \2', text)
+    text = re.sub(r'(\d)([a-zA-Z])', r'\1 \2', text)
+    # Remove repeated spaces again
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
@@ -19,9 +22,15 @@ def is_garbage(text):
     text = text.strip()
     if len(text) < 4:
         return True
-    if text.lower() in ["page", "table of contents", "toc"]:
+    low = text.lower()
+    # Common unwanted words or short fragments
+    if low in ["page", "table of contents", "toc", "figure", "fig"]:
         return True
+    # Only punctuation or digits
     if re.fullmatch(r"[\d\W]+", text):
+        return True
+    # Very short gibberish like "r pr", "quest f", etc.
+    if re.fullmatch(r"([a-zA-Z]{1,3}\s?){1,3}", text) and len(text) < 10:
         return True
     return False
 
@@ -36,6 +45,7 @@ def extract_title(doc):
                     t = clean_text(s.get("text", ""))
                     if is_garbage(t):
                         continue
+                    # Consider bigger font size and longer text
                     if s["size"] > max_size and len(t) >= 6:
                         max_size = s["size"]
                         largest = t
@@ -48,6 +58,19 @@ def extract_features(text, span):
         len(text.split()),
         len(text)
     ]
+
+def remove_duplicates_and_garbage(outline):
+    seen_texts = set()
+    cleaned = []
+    for item in outline:
+        text = item["text"].lower()
+        if text in seen_texts:
+            continue
+        if is_garbage(item["text"]):
+            continue
+        seen_texts.add(text)
+        cleaned.append(item)
+    return cleaned
 
 def process_pdf(path):
     doc = fitz.open(path)
@@ -75,6 +98,8 @@ def process_pdf(path):
                     "text": line_text,
                     "page": pno
                 })
+    # Clean outline to remove duplicates/garbage
+    outline = remove_duplicates_and_garbage(outline)
     return {"title": title, "outline": outline}
 
 def main():
